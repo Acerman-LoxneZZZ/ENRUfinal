@@ -1,0 +1,239 @@
+<Window x:Class="Raskladka.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:Raskladka"
+    Title="Раскладка" AutomationProperties.Name="Раскладка"
+    Width="320" Height="100" WindowStyle="None" ResizeMode="NoResize"
+    WindowStartupLocation="CenterScreen" AllowsTransparency="True" Background="Transparent"
+    Foreground="{DynamicResource Ink}" FontFamily="Segoe UI Variable Text, Segoe UI"
+    FontSize="14" UseLayoutRounding="True" SnapsToDevicePixels="True"
+    TextOptions.TextFormattingMode="Display" Language="ru-RU">
+  <Window.Resources>
+    <SolidColorBrush x:Key="Base" Color="#17181B"/>
+    <SolidColorBrush x:Key="Raised" Color="#222429"/>
+    <SolidColorBrush x:Key="Hover" Color="#303237"/>
+    <SolidColorBrush x:Key="Pressed" Color="#36383D"/>
+    <SolidColorBrush x:Key="Frame" Color="#414349"/>
+    <SolidColorBrush x:Key="Line" Color="#34363B"/>
+    <SolidColorBrush x:Key="Bevel" Color="#51535A"/>
+    <SolidColorBrush x:Key="Recess" Color="#101114"/>
+    <SolidColorBrush x:Key="Ink" Color="#F1F0EC"/>
+    <SolidColorBrush x:Key="Muted" Color="#B0B1B6"/>
+    <SolidColorBrush x:Key="OnInk" Color="#191A1D"/>
+    <SolidColorBrush x:Key="Focus" Color="#E4E5EA"/>
+
+    <Style TargetType="ToolTip">
+      <Setter Property="OverridesDefaultStyle" Value="True"/>
+      <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ToolTip">
+        <Border Background="{DynamicResource Raised}" BorderBrush="{DynamicResource Frame}" BorderThickness="1" CornerRadius="6" Padding="8,4">
+          <ContentPresenter/>
+        </Border>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="ButtonBase" TargetType="Button">
+      <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+      <Setter Property="Background" Value="{DynamicResource Raised}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource Frame}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="12,5"/>
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="ToolTipService.InitialShowDelay" Value="420"/>
+      <Setter Property="ToolTipService.ShowsToolTipOnKeyboardFocus" Value="True"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border x:Name="Box" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+          BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+          <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="Background" Value="{DynamicResource Hover}"/></Trigger>
+          <Trigger Property="IsPressed" Value="True"><Setter TargetName="Box" Property="Background" Value="{DynamicResource Pressed}"/></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Focus}"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Box" Property="Opacity" Value="0.55"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="Ghost" TargetType="Button" BasedOn="{StaticResource ButtonBase}">
+      <Setter Property="Background" Value="Transparent"/><Setter Property="BorderBrush" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource Muted}"/><Setter Property="Padding" Value="8,2"/>
+    </Style>
+    <Style x:Key="Icon" TargetType="Button" BasedOn="{StaticResource Ghost}">
+      <Setter Property="Padding" Value="0"/><Setter Property="Width" Value="30"/><Setter Property="Height" Value="30"/><Setter Property="MinHeight" Value="30"/>
+    </Style>
+    <Style x:Key="IconPath" TargetType="Path">
+      <Setter Property="Stroke" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+      <Setter Property="StrokeThickness" Value="1.35"/><Setter Property="StrokeStartLineCap" Value="Round"/>
+      <Setter Property="StrokeEndLineCap" Value="Round"/><Setter Property="StrokeLineJoin" Value="Round"/>
+    </Style>
+    <Style x:Key="MutedText" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource Muted}"/><Setter Property="FontSize" Value="13"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style x:Key="Rule" TargetType="Border">
+      <Setter Property="Height" Value="1"/><Setter Property="Background" Value="{DynamicResource Line}"/>
+    </Style>
+    <ControlTemplate x:Key="ScrollPage" TargetType="RepeatButton">
+      <Border Background="Transparent"/>
+    </ControlTemplate>
+    <Style x:Key="SectionTitle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="16"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style x:Key="Switch" TargetType="CheckBox">
+      <Setter Property="HorizontalAlignment" Value="Right"/><Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="CheckBox">
+        <Border x:Name="Ring" BorderBrush="Transparent" BorderThickness="1" CornerRadius="14" Padding="3" Background="Transparent">
+          <Grid Width="36" Height="20">
+            <Border x:Name="Track" Background="{DynamicResource Raised}" BorderBrush="{DynamicResource Bevel}" BorderThickness="1" CornerRadius="10"/>
+            <Border x:Name="CheckedTrack" Opacity="0" Background="{DynamicResource Ink}" BorderBrush="{DynamicResource Bevel}" BorderThickness="1" CornerRadius="10"/>
+            <Ellipse x:Name="Thumb" Fill="{DynamicResource Muted}" Width="12" Height="12" HorizontalAlignment="Left" Margin="4,0,0,0">
+              <Ellipse.RenderTransform><TranslateTransform/></Ellipse.RenderTransform>
+            </Ellipse>
+          </Grid>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsChecked" Value="True"><Setter TargetName="Thumb" Property="Fill" Value="{DynamicResource OnInk}"/></Trigger>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Track" Property="BorderBrush" Value="{DynamicResource Muted}"/></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Ring" Property="BorderBrush" Value="{DynamicResource Focus}"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="Choice" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+        <Border x:Name="Box" CornerRadius="5" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" Padding="9,6">
+          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="Background" Value="{DynamicResource Hover}"/></Trigger>
+          <Trigger Property="IsChecked" Value="True"><Setter TargetName="Box" Property="Background" Value="{DynamicResource Pressed}"/><Setter Property="Foreground" Value="{DynamicResource Ink}"/></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Focus}"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+  </Window.Resources>
+
+  <Grid x:Name="Stage" IsVisibleChanged="PanelVisibilityChanged" Unloaded="PanelUnloaded" ClipToBounds="True" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+    <Grid x:Name="Surface" Width="320" Height="100" HorizontalAlignment="Left" VerticalAlignment="Top" ClipToBounds="True">
+      <Grid.RenderTransform><TranslateTransform/></Grid.RenderTransform>
+      <local:PanelRim x:Name="Rim" IsHitTestVisible="False"/>
+      <Grid x:Name="Inner" Margin="16,5,16,13">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid x:Name="TitleBar" Background="Transparent" MouseLeftButtonDown="DragWindow">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock Text="Раскладка" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          <Button x:Name="SettingsButton" Grid.Column="1" Style="{StaticResource Icon}" Click="OpenOrCloseSettings" AutomationProperties.Name="Открыть настройки" ToolTip="Открыть настройки">
+            <Grid Width="16" Height="16">
+              <Path x:Name="SettingsGlyph" Style="{StaticResource IconPath}" Data="M6.5,1.4 L9.5,1.4 9.9,3.1 11.1,3.8 12.8,3.3 14.3,5.9 13,7.1 13,8.9 14.3,10.1 12.8,12.7 11.1,12.2 9.9,12.9 9.5,14.6 6.5,14.6 6.1,12.9 4.9,12.2 3.2,12.7 1.7,10.1 3,8.9 3,7.1 1.7,5.9 3.2,3.3 4.9,3.8 6.1,3.1 Z M10.2,8 A2.2,2.2 0 1 1 5.8,8 A2.2,2.2 0 1 1 10.2,8"/>
+              <Path x:Name="BackGlyph" Visibility="Collapsed" Style="{StaticResource IconPath}" Data="M7,3 L2,8 7,13 M2,8 L14,8"/>
+            </Grid>
+          </Button>
+          <Button x:Name="HideButton" Grid.Column="2" Style="{StaticResource Icon}" ToolTip="Скрыть в трей" Click="HideToTray" AutomationProperties.Name="Скрыть в трей">
+            <Grid Width="16" Height="16"><Path Style="{StaticResource IconPath}" Data="M3,8 L13,8"/></Grid>
+          </Button>
+        </Grid>
+        <Grid x:Name="Summary" Grid.Row="1" MinHeight="48" Margin="0,2,0,0" Background="Transparent" MouseLeftButtonDown="DragWindow">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <local:LetterKey x:Name="Signature" Width="40" Height="40" VerticalAlignment="Center"/>
+          <TextBlock x:Name="Status" Grid.Column="1" Text="Готово к работе" FontSize="12" Margin="8,0,4,0" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite"/>
+          <Button x:Name="MiniRecord" Grid.Column="2" Style="{StaticResource ButtonBase}" Padding="6,3" FontSize="12" MinHeight="28" MaxWidth="140" VerticalAlignment="Center"
+            AutomationProperties.Name="Назначить сочетание" ToolTip="Назначить сочетание" Click="BeginRecording"><WrapPanel x:Name="MiniKeys" VerticalAlignment="Center"/></Button>
+        </Grid>
+        <Border x:Name="HintFrame" Grid.Row="2" Visibility="{Binding Visibility, ElementName=Hint}" BorderBrush="{DynamicResource Muted}" Margin="0,4,0,0">
+          <TextBlock x:Name="Hint" Style="{StaticResource MutedText}" AutomationProperties.LiveSetting="Polite" Visibility="Collapsed"/>
+        </Border>
+        <Grid x:Name="Details" Grid.Row="3" HorizontalAlignment="Left" Visibility="Collapsed" Opacity="0" Margin="0,12,0,0">
+          <Grid.RenderTransform><TranslateTransform/></Grid.RenderTransform>
+          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+          <Border Style="{StaticResource Rule}"/>
+          <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" Background="Transparent" VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled" CanContentScroll="False" PanningMode="VerticalOnly"
+                        Focusable="False" AutomationProperties.Name="Настройки">
+            <ScrollViewer.Resources>
+              <Style TargetType="ScrollBar">
+                <Setter Property="Width" Value="14"/>
+                <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+                  <Track x:Name="PART_Track" Orientation="Vertical" IsDirectionReversed="True">
+                    <Track.DecreaseRepeatButton><RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Template="{StaticResource ScrollPage}" Focusable="False"/></Track.DecreaseRepeatButton>
+                    <Track.Thumb>
+                      <Thumb MinHeight="20" Focusable="False">
+                        <Thumb.Template><ControlTemplate TargetType="Thumb">
+                          <Grid Background="Transparent">
+                            <Border x:Name="Grip" Width="5" Margin="0,2" CornerRadius="2.5" Background="{DynamicResource Muted}" Opacity="0.65"/>
+                          </Grid>
+                          <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Grip" Property="Opacity" Value="1"/></Trigger>
+                            <Trigger Property="IsDragging" Value="True"><Setter TargetName="Grip" Property="Opacity" Value="1"/></Trigger>
+                          </ControlTemplate.Triggers>
+                        </ControlTemplate></Thumb.Template>
+                      </Thumb>
+                    </Track.Thumb>
+                    <Track.IncreaseRepeatButton><RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Template="{StaticResource ScrollPage}" Focusable="False"/></Track.IncreaseRepeatButton>
+                  </Track>
+                </ControlTemplate></Setter.Value></Setter>
+              </Style>
+            </ScrollViewer.Resources>
+            <StackPanel Margin="0,14,10,8">
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                  <TextBlock Text="Сочетание клавиш" Style="{StaticResource SectionTitle}"/>
+                  <TextBlock Text="Исправляет выделенный фрагмент" Style="{StaticResource MutedText}" Margin="0,3,0,0"/>
+                </StackPanel>
+                <Button x:Name="SettingsRecord" Grid.Column="1" Style="{StaticResource ButtonBase}" VerticalAlignment="Center" MaxWidth="224" Click="BeginRecording" AutomationProperties.Name="Назначить сочетание"><WrapPanel x:Name="SettingsKeys"/></Button>
+              </Grid>
+              <Border Style="{StaticResource Rule}" Margin="0,16,0,0"/>
+              <TextBlock Style="{StaticResource SectionTitle}" Text="Направление исправления" Margin="0,16,0,8"/>
+              <Border HorizontalAlignment="Left" Background="{DynamicResource Recess}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="2" CornerRadius="7">
+                <WrapPanel>
+                  <RadioButton x:Name="AutoDirection" GroupName="Direction" Content="Автоопределение" Style="{StaticResource Choice}" Checked="ChangePreference"/>
+                  <RadioButton x:Name="ToRuDirection" GroupName="Direction" Content="EN → RU" Style="{StaticResource Choice}" Checked="ChangePreference"/>
+                  <RadioButton x:Name="ToEnDirection" GroupName="Direction" Content="RU → EN" Style="{StaticResource Choice}" Checked="ChangePreference"/>
+                </WrapPanel>
+              </Border>
+              <Border Style="{StaticResource Rule}" Margin="0,16,0,4"/>
+              <Grid Margin="0,8,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Margin="0,0,16,0">
+                  <TextBlock Text="Исправлять недавний ввод" TextWrapping="Wrap"/>
+                  <TextBlock Style="{StaticResource MutedText}" Margin="0,3,0,0" Text="Без выделения, пока пауза в наборе короче 8 секунд."/>
+                  <TextBlock x:Name="RecentExample" Style="{StaticResource MutedText}" Visibility="Collapsed" Margin="0,4,0,0" Text="Например, наберите «lj,hsq ltym» и нажмите сочетание. Получится «добрый день»."/>
+                </StackPanel>
+                <CheckBox x:Name="RecentSwitch" Grid.Column="1" Style="{StaticResource Switch}" AutomationProperties.Name="Исправлять недавний ввод" Click="ChangePreference"/>
+              </Grid>
+              <Border Style="{StaticResource Rule}"/>
+              <Grid Margin="0,12,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="Переключать раскладку после исправления" TextWrapping="Wrap" Margin="0,0,16,0" VerticalAlignment="Center"/>
+                <CheckBox x:Name="LayoutSwitch" Grid.Column="1" Style="{StaticResource Switch}" AutomationProperties.Name="Переключать раскладку после исправления" Click="ChangePreference"/>
+              </Grid>
+              <Border Style="{StaticResource Rule}" Margin="0,4,0,0"/>
+              <TextBlock Style="{StaticResource SectionTitle}" Text="Вид" Margin="0,16,0,0"/>
+              <Grid Margin="0,12,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock Text="Поверх окон" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                <CheckBox x:Name="TopmostSwitch" Grid.Column="1" Style="{StaticResource Switch}" AutomationProperties.Name="Поверх окон" Click="ChangePreference"/>
+              </Grid><Border Style="{StaticResource Rule}"/>
+              <Grid Margin="0,12,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Margin="0,0,16,0"><TextBlock Text="Краткое уведомление" TextWrapping="Wrap"/>
+                  <TextBlock Style="{StaticResource MutedText}" Margin="0,3,0,0" Text="Показывать направление, когда окно скрыто."/></StackPanel>
+                <CheckBox x:Name="NotifySwitch" Grid.Column="1" Style="{StaticResource Switch}" AutomationProperties.Name="Показывать краткое уведомление" Click="ChangePreference"/>
+              </Grid><Border Style="{StaticResource Rule}"/>
+              <TextBlock Style="{StaticResource SectionTitle}" Text="Уровень движения" Margin="0,16,0,8"/>
+              <Border HorizontalAlignment="Left" Background="{DynamicResource Recess}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="2" CornerRadius="7">
+                <WrapPanel>
+                  <RadioButton x:Name="SystemMotion" GroupName="Motion" Content="Как в системе" Style="{StaticResource Choice}" Checked="ChangePreference"/>
+                  <RadioButton x:Name="FullMotion" GroupName="Motion" Content="Полный" Style="{StaticResource Choice}" Checked="ChangePreference"/>
+                  <RadioButton x:Name="MinimalMotion" GroupName="Motion" Content="Минимальный" Style="{StaticResource Choice}" Checked="ChangePreference"/>
+                </WrapPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>
+

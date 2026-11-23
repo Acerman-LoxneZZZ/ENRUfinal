@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Раскладка",
+  "description": "Исправление выделения и недавнего ввода в активном текстовом поле через локальную утилиту Windows.",
+  "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3nkm6MfNAkqLtz5sO2Q2TY3yNl31MdwNvBjrn0ZNvR3iUk771j/Z1VdhbgSabgpf0O9Hw8i+ukGERxWqvYwQEM5PLaWy5yIzcxmohB0wwfyTjFT1OuESSWTEQKqv5cFyppq0+5PsCXNVL0JFCr0m7aNPcPxMeHGSV1SEheBiTlPaVtGbgvVRGzXa9hjzTU/cWrHs57tdOiv7IZ6HgyhZviUIr4T38SYCK9vUN0bRQ2HTblQz64n29w3e6o/tfcweYQWhZ+QF1frXYHjOsm3Cld5pIA98sUoBCylP4mj9Kd+p/Up+2rYDBLKk/Mt3D4ZsgAVhjmwDEctXXFZ+kL/7jQIDAQAB",
+  "permissions": ["nativeMessaging"],
+  "background": { "service_worker": "worker.js" },
+  "content_scripts": [{
+    "matches": ["http://*/*", "https://*/*", "file:///*"],
+    "js": ["field.js"],
+    "run_at": "document_start",
+    "all_frames": true,
+    "match_about_blank": true
+  }],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'"
+  }
+}
