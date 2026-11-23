@@ -16,7 +16,7 @@ namespace Raskladka
     public partial class MainWindow : Window
     {
         public Func<uint, uint, string> RegisterBinding { get; set; }
-        public Action<int, bool, bool, bool, bool, int> PreferencesChanged { get; set; }
+        public Action<int, bool, bool, bool, int> PreferencesChanged { get; set; }
         public Action<bool> RecordingChanged { get; set; }
         public Action HideRequested { get; set; }
         public bool IsRecording { get; private set; }
@@ -32,7 +32,7 @@ namespace Raskladka
         public MainWindow()
         {
             InitializeComponent();
-            switches = new[] { RecentSwitch, LayoutSwitch, TopmostSwitch, NotifySwitch };
+            switches = new[] { LayoutSwitch, TopmostSwitch, NotifySwitch };
             statusTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
             statusTimer.Tick += delegate { statusTimer.Stop(); if (!IsRecording && !persistentError) SetStatus("Готово к работе"); };
             PreviewKeyDown += OnKeyDown;
@@ -48,7 +48,7 @@ namespace Raskladka
                 SystemEvents.UserPreferenceChanged -= UserPreferenceChanged;
             };
             SourceInitialized += delegate { ConfigureSystem(); };
-            SetPreferences(0, false, false, false, false, 0);
+            SetPreferences(0, false, false, false, 0);
             SetHotkey(0, 0);
         }
 
@@ -68,18 +68,16 @@ namespace Raskladka
             }
         }
 
-        public void SetPreferences(int direction, bool recent, bool switchLayout, bool topmost, bool notifications, int motion)
+        public void SetPreferences(int direction, bool switchLayout, bool topmost, bool notifications, int motion)
         {
             loading = true;
             mode = Math.Max(0, Math.Min(motion, 2));
             SyncMotionPreference();
             new[] { AutoDirection, ToRuDirection, ToEnDirection }[Math.Max(0, Math.Min(direction, 2))].IsChecked = true;
             new[] { SystemMotion, FullMotion, MinimalMotion }[mode].IsChecked = true;
-            RecentSwitch.IsChecked = recent;
             LayoutSwitch.IsChecked = switchLayout;
             TopmostSwitch.IsChecked = Topmost = topmost;
             NotifySwitch.IsChecked = notifications;
-            RecentExample.Visibility = recent ? Visibility.Visible : Visibility.Collapsed;
             foreach (var item in switches) MoveSwitch(item, false);
             loading = false;
         }
@@ -92,7 +90,6 @@ namespace Raskladka
             mode = FullMotion.IsChecked == true ? 1 : MinimalMotion.IsChecked == true ? 2 : 0;
             SyncMotionPreference();
             Topmost = TopmostSwitch.IsChecked == true;
-            RecentExample.Visibility = RecentSwitch.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
             var toggle = sender as CheckBox;
             if (toggle != null) MoveSwitch(toggle, Animate);
             SavePreferences();
@@ -108,7 +105,7 @@ namespace Raskladka
         {
             var changed = PreferencesChanged;
             if (changed != null) changed(ToRuDirection.IsChecked == true ? 1 : ToEnDirection.IsChecked == true ? 2 : 0,
-                RecentSwitch.IsChecked == true, LayoutSwitch.IsChecked == true, TopmostSwitch.IsChecked == true,
+                LayoutSwitch.IsChecked == true, TopmostSwitch.IsChecked == true,
                 NotifySwitch.IsChecked == true, mode);
         }
 

@@ -183,7 +183,7 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
                   <TextBlock Text="Сочетание клавиш" Style="{StaticResource SectionTitle}"/>
-                  <TextBlock Text="Исправляет выделенный фрагмент" Style="{StaticResource MutedText}" Margin="0,3,0,0"/>
+                  <TextBlock Text="Исправляет слово у курсора или весь выделенный текст." Style="{StaticResource MutedText}" Margin="0,3,0,0"/>
                 </StackPanel>
                 <Button x:Name="SettingsRecord" Grid.Column="1" Style="{StaticResource ButtonBase}" VerticalAlignment="Center" MaxWidth="224" Click="BeginRecording" AutomationProperties.Name="Назначить сочетание"><WrapPanel x:Name="SettingsKeys"/></Button>
               </Grid>
@@ -196,16 +196,7 @@
                   <RadioButton x:Name="ToEnDirection" GroupName="Direction" Content="RU → EN" Style="{StaticResource Choice}" Checked="ChangePreference"/>
                 </WrapPanel>
               </Border>
-              <Border Style="{StaticResource Rule}" Margin="0,16,0,4"/>
-              <Grid Margin="0,8,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <StackPanel Margin="0,0,16,0">
-                  <TextBlock Text="Исправлять недавний ввод" TextWrapping="Wrap"/>
-                  <TextBlock Style="{StaticResource MutedText}" Margin="0,3,0,0" Text="Без выделения, пока пауза в наборе короче 8 секунд."/>
-                  <TextBlock x:Name="RecentExample" Style="{StaticResource MutedText}" Visibility="Collapsed" Margin="0,4,0,0" Text="Например, наберите «lj,hsq ltym» и нажмите сочетание. Получится «добрый день»."/>
-                </StackPanel>
-                <CheckBox x:Name="RecentSwitch" Grid.Column="1" Style="{StaticResource Switch}" AutomationProperties.Name="Исправлять недавний ввод" Click="ChangePreference"/>
-              </Grid>
-              <Border Style="{StaticResource Rule}"/>
+              <Border Style="{StaticResource Rule}" Margin="0,16,0,0"/>
               <Grid Margin="0,12,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <TextBlock Text="Переключать раскладку после исправления" TextWrapping="Wrap" Margin="0,0,16,0" VerticalAlignment="Center"/>
                 <CheckBox x:Name="LayoutSwitch" Grid.Column="1" Style="{StaticResource Switch}" AutomationProperties.Name="Переключать раскладку после исправления" Click="ChangePreference"/>

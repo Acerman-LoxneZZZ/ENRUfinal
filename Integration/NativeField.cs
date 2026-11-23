@@ -81,14 +81,54 @@ namespace Raskladka.Integration
 
         internal int Query(uint message)
         {
+            return Query(message, 0);
+        }
+        private int Query(uint message, int argument)
+        {
             IntPtr result;
-            if (Send(Control, message, IntPtr.Zero, IntPtr.Zero, Flags, 500, out result) == IntPtr.Zero) throw new Win32Exception();
+            if (Send(Control, message, new IntPtr(argument), IntPtr.Zero, Flags, 500, out result) == IntPtr.Zero) throw new Win32Exception();
             return unchecked((int)result.ToInt64());
+        }
+        // Get the displayed line containing the caret, without moving the selection.
+        // EM_GETLINE is system-marshalled. For long lines use the bounded UIA path.
+        internal bool TryCaretLine(int caret, out string text, out int start, out bool wrapsLeft, out bool wrapsRight)
+        {
+            text = null;
+            start = 0;
+            wrapsLeft = wrapsRight = false;
+            int number = Query(0x00C9, caret); // EM_LINEFROMCHAR
+            if (number < 0) return false;
+            start = Query(0x00BB, number); // EM_LINEINDEX
+            int length = Query(0x00C1, caret); // EM_LINELENGTH
+            if (start < 0 || length < 0 || length > 2048 || caret < start || caret - start > length) return false;
+            if (number > 0) {
+                int previous = Query(0x00BB, number - 1);
+                wrapsLeft = previous >= 0 && start - previous == Query(0x00C1, previous);
+            }
+            int next = Query(0x00BB, number + 1);
+            wrapsRight = next >= start && next - start == length;
+            int capacity = length + 1;
+            IntPtr buffer = Marshal.AllocHGlobal(capacity * sizeof(char));
+            try {
+                Marshal.WriteInt16(buffer, (short)capacity);
+                IntPtr copied;
+                if (Send(Control, 0x00C4, new IntPtr(number), buffer, Flags, 500, out copied) == IntPtr.Zero)
+                    throw new Win32Exception();
+                if (copied.ToInt64() != length) return false;
+                text = Marshal.PtrToStringUni(buffer, length);
+                return true;
+            } finally { Marshal.FreeHGlobal(buffer); }
         }
         internal bool Editable()
         {
-            return NativeEdit && Current() && (GetWindowLong(Control, -16) & (0x20 | 0x800 | 0x08000000)) == 0
+            return NativeEdit && (GetWindowLong(Control, -16) & (0x20 | 0x800 | 0x08000000)) == 0
                 && Query(0x00D2) == 0; // ES_PASSWORD, ES_READONLY, WS_DISABLED, EM_GETPASSWORDCHAR
+        }
+        internal void SetSelection(EditSpan span)
+        {
+            IntPtr ignored;
+            if (Send(Control, 0x00B1, new IntPtr(span.Start), new IntPtr(span.End), Flags, 500, out ignored) == IntPtr.Zero)
+                throw new Win32Exception();
         }
         internal EditSpan Selection()
         {

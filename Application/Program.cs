@@ -12,7 +12,7 @@ using Forms = System.Windows.Forms;
 using Drawing = System.Drawing;
 
 [assembly: AssemblyTitle("Раскладка")]
-[assembly: AssemblyDescription("Исправление раскладки выделенного текста")]
+[assembly: AssemblyDescription("Исправление раскладки слова у курсора или выделенного текста")]
 [assembly: AssemblyVersion("1.0.0.0")]
 
 namespace Raskladka
@@ -84,7 +84,7 @@ namespace Raskladka
             panel.RegisterBinding = Register;
             panel.PreferencesChanged = PreferencesChanged;
             panel.HideRequested = HidePanel;
-            panel.SetPreferences((int)settings.Direction, settings.RecentInput, settings.SwitchLayout,
+            panel.SetPreferences((int)settings.Direction, settings.SwitchLayout,
                 settings.AlwaysOnTop, settings.Notify, (int)settings.Motion);
             panel.RestorePosition(settings.Left, settings.Top);
             panel.SourceInitialized += delegate
@@ -112,7 +112,6 @@ namespace Raskladka
             menu.Items.Add("Выход", null, delegate { Exit(); });
             tray = new Forms.NotifyIcon { Icon = icon, Text = "Раскладка", ContextMenuStrip = menu, Visible = true };
             tray.MouseDoubleClick += delegate(object sender, Forms.MouseEventArgs e) { if (e.Button == Forms.MouseButtons.Left) ShowPanel(); };
-            editors.SetRecentEnabled(settings.RecentInput);
             panel.Show();
         }
 
@@ -126,12 +125,10 @@ namespace Raskladka
             return null;
         }
 
-        private void PreferencesChanged(int direction, bool recent, bool switchLayout, bool topmost,
+        private void PreferencesChanged(int direction, bool switchLayout, bool topmost,
             bool notify, int motion)
         {
-            if (settings.RecentInput != recent) editors.SetRecentEnabled(recent);
             settings.Direction = (ConversionMode)direction;
-            settings.RecentInput = recent;
             settings.SwitchLayout = switchLayout;
             settings.AlwaysOnTop = topmost;
             settings.Notify = notify;
@@ -177,7 +174,7 @@ namespace Raskladka
             }
             catch (System.Runtime.InteropServices.COMException)
             {
-                if (!exiting) Feedback(false, "Выделите текст и нажмите сочетание ещё раз", "");
+                if (!exiting) Feedback(false, EditorService.Unavailable, "");
             }
         }
 

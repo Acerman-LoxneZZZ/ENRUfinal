@@ -54,6 +54,40 @@ internal static class CoreTests
         }
     }
 
+    private static void WordAt(string marked, string expected)
+    {
+        int caret = marked.IndexOf('|');
+        string input = marked.Remove(caret, 1);
+        int start, end;
+        bool found = CaretWord.TryFind(input, caret, out start, out end);
+        Check((found ? input.Substring(start, end - start) : null) == expected, "Word at " + marked);
+    }
+
+    private static void Words()
+    {
+        WordAt("Ответ: Ghb|dtn vbh", "Ghbdtn");
+        WordAt("Ответ: |Ghbdtn vbh", "Ghbdtn");
+        WordAt("Ghbdtn |vbh", "vbh");
+        WordAt("Ghbdtn|!", "Ghbdtn");
+        WordAt("Ghbdtn!  |", "Ghbdtn");
+        WordAt("lj,|hsq ltym", "lj,hsq");
+        WordAt("руд|дщ", "руддщ");
+        WordAt("руддщ,цщ|кдв", "цщкдв");
+        WordAt("Ответ,Gh|bdtn", "Ghbdtn");
+        WordAt("до\r\n|Ghbdtn", "Ghbdtn");
+        WordAt("Ghbdtn\r\n  |", null);
+        WordAt("|", null);
+        WordAt(" |  Ghbdtn", null);
+        WordAt("Ghbdtn🙂 |", null);
+        WordAt("🙂 Ghbdtn\t|", "Ghbdtn");
+        WordAt("one..|two", "two");
+        WordAt("long-|word!", "long-word");
+        WordAt("e\u0301|lan", "e\u0301lan");
+        WordAt("𐐀|abc", "𐐀abc");
+        int start, end;
+        Check(!CaretWord.TryFind("🙂abc", 1, out start, out end), "Split surrogate");
+    }
+
     private static void Settings()
     {
         string directory = Path.Combine(Path.GetTempPath(), "RaskladkaTest-" + Guid.NewGuid().ToString("N"));
@@ -61,10 +95,10 @@ internal static class CoreTests
         try
         {
             var settings = AppSettings.Load(path);
-            Check(settings.Hotkey == null && !settings.RecentInput && !settings.SwitchLayout && !settings.Notify && !settings.AlwaysOnTop, "Defaults");
+            Check(settings.Hotkey == null && !settings.SwitchLayout && !settings.Notify && !settings.AlwaysOnTop, "Defaults");
             Check(settings.Motion == MotionMode.System && settings.Direction == ConversionMode.Auto && double.IsNaN(settings.Left), "Default modes");
             settings.Hotkey = new HotkeyBinding(2, 0x4A);
-            settings.RecentInput = settings.Notify = settings.AlwaysOnTop = settings.SwitchLayout = true;
+            settings.Notify = settings.AlwaysOnTop = settings.SwitchLayout = true;
             settings.Direction = ConversionMode.EnToRu;
             settings.Motion = MotionMode.Minimal;
             settings.Left = -1012.25;
@@ -73,13 +107,15 @@ internal static class CoreTests
             var legacyFile = new XmlDocument();
             legacyFile.Load(path);
             legacyFile.DocumentElement.SetAttribute("lastTab", "2");
+            legacyFile.DocumentElement.SetAttribute("recentInput", "true");
             legacyFile.Save(path);
             var loaded = AppSettings.Load(path);
-            Check(settings.Hotkey.Equals(loaded.Hotkey) && loaded.RecentInput && loaded.SwitchLayout && loaded.Notify && loaded.AlwaysOnTop, "Restored switches");
+            Check(settings.Hotkey.Equals(loaded.Hotkey) && loaded.SwitchLayout && loaded.Notify && loaded.AlwaysOnTop, "Restored switches");
             Check(loaded.Direction == settings.Direction && loaded.Motion == settings.Motion && loaded.Left == -1012.25 && loaded.Top == 72.5, "Restored modes and coordinates from tabbed settings");
             loaded.Hotkey = null;
             Check(loaded.Save(path) && AppSettings.Load(path).Hotkey == null, "Replace");
             legacyFile.Load(path);
+            Check(!legacyFile.DocumentElement.HasAttribute("recentInput"), "Obsolete input tracking setting removed on save");
             Check(!legacyFile.DocumentElement.HasAttribute("lastTab"), "Obsolete tab omitted on save");
             string committed = File.ReadAllText(path);
             File.SetAttributes(path, FileAttributes.ReadOnly);
@@ -151,9 +187,10 @@ internal static class CoreTests
         try
         {
             Conversion();
+            Words();
             Settings();
             Bindings();
-            Console.WriteLine("Passed {0} checks (conversion, settings, Win32 hotkeys).", assertions);
+            Console.WriteLine("Passed {0} checks (conversion, caret words, settings, Win32 hotkeys).", assertions);
             return 0;
         }
         catch (Exception ex)

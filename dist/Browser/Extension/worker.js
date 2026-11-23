@@ -1,16 +1,10 @@
 /* A Native Messaging channel to the desktop process is the only transport. */
 const frames = new Set();
 const pending = new Map();
-let recent = false;
 let native = null;
 
 function post(port, message) {
   try { port.postMessage(message); } catch { /* The frame or host has closed. */ }
-}
-
-function configure(enabled) {
-  recent = enabled;
-  for (const frame of frames) post(frame, { op: "config", enabled });
 }
 
 function connect() {
@@ -27,12 +21,10 @@ function connect() {
     native = null;
     for (const entry of pending.values()) clearTimeout(entry.timer);
     pending.clear();
-    configure(false);
   });
 }
 
 async function handle(host, message) {
-  if (message.op === "config") { configure(message.enabled === true); return; }
   if (typeof message.id !== "string") return;
   if (message.op !== "prepare") {
     const item = pending.get(message.id);
@@ -59,7 +51,8 @@ chrome.runtime.onConnect.addListener(frame => {
   if (frame.name !== "field" || !frame.sender.tab) return;
   frames.add(frame);
   connect();
-  post(frame, { op: "config", enabled: recent });
+  // Disable recent-input tracking in 1.0 content scripts until the tab reloads.
+  post(frame, { op: "config", enabled: false });
   frame.onDisconnect.addListener(() => frames.delete(frame));
   frame.onMessage.addListener(reply => {
     const item = pending.get(reply.id);

@@ -6,7 +6,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows.Automation;
-using System.Windows.Automation.Text;
 using Raskladka;
 using Raskladka.Integration;
 
@@ -25,8 +24,6 @@ internal static class NotepadScenario
     private static extern IntPtr SetString(IntPtr hwnd, int message, IntPtr w, string value);
     [DllImport("user32.dll", EntryPoint = "SendMessageW", CharSet = CharSet.Unicode)]
     private static extern IntPtr ReadString(IntPtr hwnd, int message, IntPtr w, StringBuilder text);
-    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
-    private static extern IntPtr GetSelection(IntPtr hwnd, int message, out int start, out int end);
 
     private static IntPtr Child(Process process, string parentClass, string childClass)
     {
@@ -89,60 +86,29 @@ internal static class NotepadScenario
         SetForegroundWindow(window);
         Thread.Sleep(120);
         log.WriteLine("Classic Notepad " + FileVersionInfo.GetVersionInfo(notepad.MainModule.FileName).FileVersion + " on private desktop");
-        if (GetForegroundWindow() != window) return IsolatedControls(edit, window, log);
-        return Scenarios(edit, window, log);
-    }
-
-    // Windows may deny foreground activation on an inactive desktop. In that case
-    // exercise the production Win32 adapter directly and label the scope explicitly.
-    private static int IsolatedControls(IntPtr edit, IntPtr window, TextWriter log)
-    {
-        log.WriteLine("No foreground on private desktop. Testing the real EDIT control, UIA range, LayoutConverter and NativeField operations directly.");
+        bool active = GetForegroundWindow() == window;
         var field = (NativeField)Activator.CreateInstance(typeof(NativeField), BindingFlags.NonPublic | BindingFlags.Instance,
             null, new object[] { window, edit, "Edit", "notepad" }, null);
-        uint initialClipboard = GetClipboardSequenceNumber();
-        int failures = 0;
-        Action<bool, string> check = delegate(bool value, string title) {
-            log.WriteLine((value ? "PASS " : "FAIL ") + title);
-            if (!value) failures++;
-        };
-        const string source = "Ответ: Ghbdtn!";
-        int start = source.IndexOf('G'), end = source.IndexOf('!');
-        Seed(edit, source, start, end);
-        var element = AutomationElement.FromHandle(edit);
-        var pattern = (TextPattern)element.GetCurrentPattern(TextPattern.Pattern);
-        var range = pattern.GetSelection()[0];
-        check(range.GetText(-1) == "Ghbdtn", "UIA reads only selected word");
-        check(field.Selection().Same(new EditSpan(start, end)), "Native selection matches range");
-        var converted = Convert(range.GetText(-1));
-        field.ReplaceSelection(converted.Replacement);
-        check(ReadFixture(edit) == "Ответ: Привет!", "Production EM_REPLACESEL changes only target");
-        check(field.Selection().Same(new EditSpan(end, end)), "Collapsed caret before !");
-        var after = pattern.GetSelection()[0].Clone();
-        after.MoveEndpointByRange(TextPatternRangeEndpoint.Start, range, TextPatternRangeEndpoint.Start);
-        check(after.GetText(-1) == converted.Replacement, "UIA postcondition with previous start pointer");
-        Send(edit, 0x0102, new IntPtr(0x1A), IntPtr.Zero);
-        check(ReadFixture(edit) == source, "One Ctrl+Z character undoes the change");
-        Select(edit, start, end);
-        field.ReplaceSelection(converted.Replacement);
-        Send(edit, 0x0102, new IntPtr('★'), IntPtr.Zero);
-        check(ReadFixture(edit) == "Ответ: Привет★!", "Continue typing at corrected caret");
-        Seed(edit, "[руддщ]", 1, 6);
-        field.ReplaceSelection(Convert(pattern.GetSelection()[0].GetText(-1)).Replacement);
-        check(ReadFixture(edit) == "[hello]", "Reverse conversion inside brackets");
-        Seed(edit, source, start, end);
-        bool invoked = false;
         using (var service = new EditorService())
         {
-            var result = Correct(service, delegate(string s) { invoked = true; return Convert(s); });
-            check(!result.Success && !invoked && ReadFixture(edit) == source, "Public command skips inactive field");
+            Func<Func<string, EditConversion>, EditorResult> correct;
+            if (active) correct = convert => Correct(service, convert);
+            else
+            {
+                log.WriteLine("Using the production selection transaction with a fixture focus check on the private desktop.");
+                var element = AutomationElement.FromHandle(edit);
+                correct = convert => EditorService.CorrectSelection(field, element, field.Selection(), convert,
+                    delegate { int pid; return GetWindowThreadProcessId(edit, out pid) != 0 && pid == notepad.Id; });
+                bool invoked = false;
+                var refused = Correct(service, delegate(string text) { invoked = true; return Convert(text); });
+                if (refused.Success || invoked) throw new InvalidOperationException("Public command must reject an inactive field");
+                log.WriteLine("PASS Public command rejects inactive field");
+            }
+            return Scenarios(edit, field, correct, log);
         }
-        check(GetClipboardSequenceNumber() == initialClipboard, "Clipboard sequence number remained unchanged");
-        log.WriteLine("Private desktop did not exercise a physical hotkey, active-field UX, or recent typing.");
-        return failures == 0 ? 0 : 1;
     }
 
-    private static int Scenarios(IntPtr edit, IntPtr window, TextWriter log)
+    private static int Scenarios(IntPtr edit, NativeField field, Func<Func<string, EditConversion>, EditorResult> correct, TextWriter log)
     {
         int failed = 0;
         Action<bool, string> check = delegate(bool value, string title) {
@@ -150,54 +116,64 @@ internal static class NotepadScenario
             if (!value) failed++;
         };
         uint clipboard = GetClipboardSequenceNumber();
-        using (var service = new EditorService())
-        {
-            const string input = "Ответ: Ghbdtn!", output = "Ответ: Привет!";
-            int start = input.IndexOf('G'), end = input.IndexOf('!');
-            Seed(edit, input, start, end);
-            var result = Correct(service, Convert);
-            check(result.Success && result.Direction == "EN → RU", "Confirmed result EN → RU (" + result.Message + ")");
-            check(ReadFixture(edit) == output, "Replace exactly the selected word");
-            int caret, tail;
-            GetSelection(edit, 0x00B0, out caret, out tail);
-            check(caret == end && tail == end && GetForegroundWindow() == window, "Caret before ! and original editor active");
+        Action<string, string, int, string> checkWord = delegate(string original, string expected, int at, string label) {
+            Seed(edit, original, at, at);
+            var result = correct(Convert);
+            check(result.Success && ReadFixture(edit) == expected, label + " (" + result.Message + ")");
+            check(field.Selection().Same(new EditSpan(at, at)), label + " retains original caret");
             Send(edit, 0x0102, new IntPtr(0x1A), IntPtr.Zero); // WM_CHAR, Ctrl+Z
-            check(ReadFixture(edit) == input, "One Ctrl+Z character restores the original word");
-            Select(edit, start, end);
-            Correct(service, Convert);
-            Send(edit, 0x0102, new IntPtr('★'), IntPtr.Zero);
-            check(ReadFixture(edit) == "Ответ: Привет★!", "Typing continues at the corrected caret");
+            check(ReadFixture(edit) == original, label + " undone in one edit");
+        };
 
-            Seed(edit, "[руддщ]", 1, 6);
-            result = Correct(service, Convert);
-            check(result.Success && result.Direction == "RU → EN" && ReadFixture(edit) == "[hello]", "RU → EN");
-            Seed(edit, "Ghbdtn? vbh!", 0, 12);
-            result = Correct(service, Convert);
-            check(result.Success && ReadFixture(edit) == "Привет, мир!", "Shift punctuation");
-            Seed(edit, "aЯ", 0, 2);
-            result = Correct(service, Convert);
-            check(!result.Success && ReadFixture(edit) == "aЯ" && result.Message == "Выделите фрагмент на одной раскладке", "Mixed selection");
+        const string input = "Ответ: Ghbdtn!", output = "Ответ: Привет!";
+        int start = input.IndexOf('G'), end = input.IndexOf('!');
+        Seed(edit, input, start, end);
+        var response = correct(Convert);
+        check(response.Success && response.Direction == "EN → RU" && ReadFixture(edit) == output, "Convert exactly selected text");
+        check(field.Selection().Same(new EditSpan(end, end)), "Caret after replaced selection");
+        Send(edit, 0x0102, new IntPtr(0x1A), IntPtr.Zero);
+        check(ReadFixture(edit) == input, "One undo restores the selected text");
+        Select(edit, start, end);
+        correct(Convert);
+        Send(edit, 0x0102, new IntPtr('★'), IntPtr.Zero);
+        check(ReadFixture(edit) == "Ответ: Привет★!", "Typing continues at the corrected caret");
 
-            Seed(edit, input, end, end);
-            bool read = false;
-            Func<string, EditConversion> detectRead = delegate(string s) { read = true; return Convert(s); };
-            result = Correct(service, detectRead);
-            check(!result.Success && !read && ReadFixture(edit) == input, "Empty selection with recent input disabled");
-            Seed(edit, "", 0, 0);
-            result = Correct(service, detectRead);
-            check(!result.Success && !read && ReadFixture(edit) == "", "Empty document");
+        Seed(edit, "Ответ: Ghbdtn? vbh!", 7, 19);
+        response = correct(Convert);
+        check(response.Success && ReadFixture(edit) == "Ответ: Привет, мир!", "A multiword selection takes priority over single word");
+        checkWord(input, output, end, "End of word");
+        checkWord(input, output, start + 3, "Middle of word");
+        checkWord(input, output, start, "Start of word");
+        checkWord("Уже Ghbdtn!  ", "Уже Привет!  ", 13, "Word before punctuation and spaces");
+        checkWord("Префикс🙂\r\nGhbdtn vbh", "Префикс🙂\r\nПривет vbh", 14, "Second line following CRLF and emoji");
+        checkWord("abc руддщ xyz", "abc hello xyz", 7, "Reverse layout inside word");
+        checkWord("До lj,hsq ltym", "До добрый ltym", 9, "Internal keyboard punctuation");
 
-            Seed(edit, input, start, end);
-            Send(edit, 0x00CF, new IntPtr(1), IntPtr.Zero); // EM_SETREADONLY
-            result = Correct(service, detectRead);
-            check(!result.Success && !read && ReadFixture(edit) == input, "Read-only selection rejected before conversion");
-            Send(edit, 0x00CF, IntPtr.Zero, IntPtr.Zero);
-
-            Seed(edit, input, start, end);
-            bool changedDuringRead = false;
-            result = Correct(service, delegate(string s) { changedDuringRead = true; Select(edit, 0, 0); return Convert(s); });
-            check(changedDuringRead && !result.Success && ReadFixture(edit) == input, "Selection changed between read and write");
+        Seed(edit, "aЯ", 0, 2);
+        response = correct(Convert);
+        check(!response.Success && ReadFixture(edit) == "aЯ", "Mixed selection retained");
+        foreach (string original in new[] { "", "Ghbdtn\r\n", "Ghbdtn\r\n   " }) {
+            Seed(edit, original, original.Length, original.Length);
+            bool invoked = false;
+            response = correct(delegate(string text) { invoked = true; return Convert(text); });
+            check(!response.Success && !invoked && ReadFixture(edit) == original, "No word on the current line");
         }
+        Seed(edit, input, end, end);
+        Send(edit, 0x00CF, new IntPtr(1), IntPtr.Zero); // EM_SETREADONLY
+        bool converted = false;
+        response = correct(delegate(string text) { converted = true; return Convert(text); });
+        check(!response.Success && !converted && ReadFixture(edit) == input, "Read-only field rejected before conversion");
+        Send(edit, 0x00CF, IntPtr.Zero, IntPtr.Zero);
+
+        Seed(edit, input, end, end);
+        response = correct(delegate(string text) { Select(edit, 0, 0); return Convert(text); });
+        check(!response.Success && field.Selection().Same(new EditSpan(0, 0)) && ReadFixture(edit) == input, "Moved caret cancels prepared word");
+        Seed(edit, input, start, end);
+        response = correct(delegate(string text) { Select(edit, 1, 3); return Convert(text); });
+        check(!response.Success && field.Selection().Same(new EditSpan(1, 3)) && ReadFixture(edit) == input, "Changed selection cancels prepared replacement");
+        Seed(edit, input, start + 1, start + 1);
+        response = correct(delegate(string text) { Seed(edit, "Ответ: Ghbdtns!", start + 1, start + 1); return Convert(text); });
+        check(!response.Success && ReadFixture(edit) == "Ответ: Ghbdtns!", "Word boundary changed during conversion");
         check(clipboard == GetClipboardSequenceNumber(), "Clipboard sequence number remained unchanged");
         return failed == 0 ? 0 : 1;
     }

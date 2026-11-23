@@ -14,7 +14,6 @@ namespace Raskladka
 
         public HotkeyBinding Hotkey { get; set; }
         public ConversionMode Direction { get; set; }
-        public bool RecentInput { get; set; }
         public bool SwitchLayout { get; set; }
         public bool AlwaysOnTop { get; set; }
         public bool Notify { get; set; }
@@ -51,7 +50,6 @@ namespace Raskladka
 
                 settings.Direction = ReadEnum(root, "direction", ConversionMode.Auto);
                 settings.Motion = ReadEnum(root, "motion", MotionMode.System);
-                settings.RecentInput = ReadFlag(root, "recentInput");
                 settings.SwitchLayout = ReadFlag(root, "switchLayout");
                 settings.AlwaysOnTop = ReadFlag(root, "alwaysOnTop");
                 settings.Notify = ReadFlag(root, "notify");
@@ -103,7 +101,6 @@ namespace Raskladka
                     writer.WriteStartElement("settings");
                     writer.WriteAttributeString("direction", Direction.ToString());
                     writer.WriteAttributeString("motion", Motion.ToString());
-                    writer.WriteAttributeString("recentInput", XmlConvert.ToString(RecentInput));
                     writer.WriteAttributeString("switchLayout", XmlConvert.ToString(SwitchLayout));
                     writer.WriteAttributeString("alwaysOnTop", XmlConvert.ToString(AlwaysOnTop));
                     writer.WriteAttributeString("notify", XmlConvert.ToString(Notify));

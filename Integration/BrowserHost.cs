@@ -15,7 +15,6 @@ namespace Raskladka.Integration
         public string id { get; set; }
         public string state { get; set; }
         public string value { get; set; }
-        public bool enabled { get; set; }
     }
     internal static class BrowserProtocol
     {
@@ -86,7 +85,7 @@ namespace Raskladka.Integration
                             while (!ended.WaitOne(0)) BrowserProtocol.Write(output, BrowserProtocol.Read(pipe));
                         } catch (Exception) {
                             if (wasConnected && !ended.WaitOne(0)) {
-                                try { BrowserProtocol.Write(output, BrowserProtocol.Encode(new BrowserMessage { op = "config", enabled = false })); }
+                                try { BrowserProtocol.Write(output, BrowserProtocol.Encode(new BrowserMessage { op = "config" })); }
                                 catch (IOException) { break; }
                             }
                         } finally { lock (state) active = null; }

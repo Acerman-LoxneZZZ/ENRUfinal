@@ -1,11 +1,7 @@
 (() => {
   let port;
-  let listeners = null;
-  let before = null;
-  let series = null;
-  let request = null;
+  let request;
   let expiry;
-  const reset = () => { before = null; series = null; };
 
   function writable(field) {
     if (!(field instanceof HTMLTextAreaElement ||
@@ -22,51 +18,67 @@
     return focused(field) && field.selectionStart === start && field.selectionEnd === end;
   }
   function cancelRequest() {
-    clearTimeout(expiry); request = null;
-  }
-  function configure(enabled) {
-    if (enabled === !!listeners) return;
-    reset();
-    if (!enabled) { listeners?.abort(); listeners = null; return; }
-    listeners = new AbortController();
-    const options = { capture: true, signal: listeners.signal };
-    document.addEventListener("beforeinput", e => {
-      const field = e.target;
-      if (!e.isTrusted || e.isComposing || !focused(field) ||
-          !["insertText", "deleteContentBackward"].includes(e.inputType) ||
-          field.selectionStart !== field.selectionEnd) { reset(); return; }
-      before = { field, type: e.inputType, at: field.selectionStart, time: performance.now() };
-      if (series && (series.field !== field || series.end !== before.at || before.time - series.time > 8000)) series = null;
-    }, options);
-    document.addEventListener("input", e => {
-      const edit = before;
-      before = null;
-      if (!edit || !e.isTrusted || edit.type !== e.inputType || edit.field !== e.target ||
-          !focused(edit.field) || edit.field.selectionStart !== edit.field.selectionEnd) { reset(); return; }
-      const end = edit.field.selectionEnd;
-      if (edit.type === "insertText" && end > edit.at) {
-        series = { field: edit.field, start: series ? series.start : edit.at, end, time: edit.time };
-      } else if (edit.type === "deleteContentBackward" && series && end > series.start && end < edit.at) {
-        series.end = end; series.time = edit.time;
-      } else reset();
-    }, options);
-    document.addEventListener("selectionchange", () => {
-      if (series && !matching(series.field, series.end, series.end)) reset();
-    }, options);
-    for (const event of ["focusin", "focusout", "submit", "paste", "cut", "drop", "pointerdown", "compositionstart"])
-      document.addEventListener(event, reset, options);
-    window.addEventListener("blur", reset, options);
+    clearTimeout(expiry);
+    request = null;
   }
 
-  // Chromium exposes the selected part of native inputs through window.getSelection().
-  // A temporary selection lets us read only this interval, including for a recent edit.
-  function read(field, start, end, a, b) {
+  // Reading a native input selection keeps unrelated field contents out of the bridge.
+  function read(field, start, end, a, b, allowShortEnd = false) {
     if (!matching(field, a, b)) return null;
-    if (start !== a || end !== b) field.setSelectionRange(start, end);
-    if (!matching(field, start, end)) return null;
-    const selected = String(window.getSelection()).replace(/\r\n?/g, "\n");
-    if ((start !== a || end !== b) && matching(field, start, end)) field.setSelectionRange(a, b);
-    return (selected.length === end - start) ? selected : null;
+    const temporary = start !== a || end !== b;
+    const direction = field.selectionDirection;
+    const left = field.scrollLeft, top = field.scrollTop;
+    try {
+      if (temporary) field.setSelectionRange(start, end);
+      if (allowShortEnd) end = Math.min(end, field.selectionEnd);
+      if (!matching(field, start, end)) return null;
+      const text = String(window.getSelection()).replace(/\r\n?/g, "\n");
+      return text.length === end - start ? text : null;
+    } finally {
+      if (temporary && matching(field, start, end)) {
+        field.setSelectionRange(a, b, direction);
+        field.scrollLeft = left;
+        field.scrollTop = top;
+      }
+    }
+  }
+
+  // Same boundaries as Core/CaretWord.cs. These punctuation keys type Russian
+  // letters on an English keyboard, e.g. the comma inside "lj,hsq" (добрый).
+  const words = /[\p{L}\p{M}\p{Nd}_]+(?:(?:['’-]|(?<=[a-zA-Z])[.,;\[\]`~<>:{}"](?=[a-zA-Z]))[\p{L}\p{M}\p{Nd}_]+)*/gu;
+  const separators = /^[\p{Zs}\p{P}\t]*$/u;
+  function wordAt(text, caret) {
+    if (/[\uD800-\uDBFF]/.test(text.charAt(caret - 1)) && /[\uDC00-\uDFFF]/.test(text.charAt(caret))) return null;
+    let previous;
+    for (const match of text.matchAll(words)) {
+      const start = match.index, end = start + match[0].length;
+      if (start > caret) break;
+      if (caret <= end) return { start, end };
+      previous = { start, end };
+    }
+    return previous && separators.test(text.slice(previous.end, caret)) ? previous : null;
+  }
+  function target(field, a, b) {
+    if (a !== b) {
+      if (b - a > 120000) return null;
+      const value = read(field, a, b, a, b);
+      return value ? { start: a, end: b, value } : null;
+    }
+    // Grow lazily for long words or runs of spaces. Leave enough context to
+    // recognize connecting punctuation and surrogate pairs at both boundaries.
+    for (let radius = 64; radius <= 65536; radius *= 4) {
+      const from = Math.max(0, a - radius), to = a + radius;
+      const text = read(field, from, to, a, b, true);
+      if (text === null) return null;
+      const range = wordAt(text, a - from);
+      if (!range) {
+        if (from && separators.test(text.slice(0, a - from))) continue;
+        return null;
+      }
+      if ((from && range.start < 3) || (from + text.length === to && range.end > text.length - 3)) continue;
+      return { start: from + range.start, end: from + range.end, value: text.slice(range.start, range.end) };
+    }
+    return null;
   }
 
   function prepare(id) {
@@ -75,42 +87,43 @@
     if (!document.hasFocus() || document.visibilityState !== "visible" || field instanceof HTMLIFrameElement) return { state: "inactive" };
     if (!writable(field)) return { state: "unsupported" };
     const a = field.selectionStart, b = field.selectionEnd;
-    let start = a;
-    if (a === b) {
-      if (!listeners || !series || series.field !== field || series.end !== b || performance.now() - series.time > 8000)
-        return { state: "empty" };
-      start = series.start;
-    }
-    if (b - start > 120000) return { state: "unsupported" };
-    const value = read(field, start, b, a, b);
-    if (!value || !matching(field, a, b)) return { state: "unsupported" };
-    request = { id, field, a, b, start, value };
+    if (!Number.isInteger(a) || !Number.isInteger(b)) return { state: "unsupported" };
+    const found = target(field, a, b);
+    if (!found || !matching(field, a, b)) return { state: a === b ? "empty" : "unsupported" };
+    request = { id, field, a, b, ...found };
     expiry = setTimeout(cancelRequest, 2000);
-    return { state: "ready", value };
+    return { state: "ready", value: found.value };
   }
 
   function commit(id, replacement) {
     const original = request;
-    cancelRequest();
     if (!original || id !== original.id || typeof replacement !== "string") return "inactive";
-    const {field, a, b, start, value} = original;
-    if (replacement.length !== value.length || read(field, start, b, a, b) !== value || !matching(field, a, b)) return "inactive";
-    if (a !== start) field.setSelectionRange(start, b);
-    if (!matching(field, start, b)) return "inactive";
-    // Chromium's editing command performs a single native undoable edit. Its return
-    // value alone does not prove success: check the actual text and final caret.
-    document.execCommand("insertText", false, replacement);
-    reset();
-    if (!matching(field, b, b) || read(field, start, b, b, b) !== replacement || !matching(field, b, b)) return "inactive";
+    cancelRequest();
+    const { field, a, b, start, end, value } = original;
+    if (replacement.length !== value.length || !matching(field, a, b)) return "inactive";
+    const now = target(field, a, b);
+    if (!now || now.start !== start || now.end !== end || now.value !== value || !matching(field, a, b)) return "inactive";
+    const implicit = a === b;
+    if (implicit) field.setSelectionRange(start, end);
+    if (!matching(field, start, end)) return "inactive";
+    try {
+      // Chromium records this replacement as one native undo entry.
+      document.execCommand("insertText", false, replacement);
+    } finally {
+      if (implicit && matching(field, start, end)) field.setSelectionRange(a, a);
+    }
+    if (!matching(field, end, end) || read(field, start, end, end, end) !== replacement || !matching(field, end, end)) return "inactive";
+    if (implicit) field.setSelectionRange(a, a);
     return "done";
   }
+
   function connect() {
     if (port) return;
     try { port = chrome.runtime.connect({ name: "field" }); } catch { return; }
-    port.onDisconnect.addListener(() => { port = null; configure(false); cancelRequest(); });
+    port.onDisconnect.addListener(() => { port = null; cancelRequest(); });
     port.onMessage.addListener(message => {
-      if (message.op === "config") { configure(message.enabled === true); return; }
       if (message.op === "release") { if (request?.id === message.id) cancelRequest(); return; }
+      if (message.op !== "prepare" && message.op !== "commit") return;
       try {
         const reply = message.op === "prepare" ? prepare(message.id) : { state: commit(message.id, message.value) };
         port?.postMessage({ id: message.id, ...reply });
@@ -122,6 +135,6 @@
   window.addEventListener("pageshow", connect);
   window.addEventListener("blur", cancelRequest);
   document.addEventListener("focusout", cancelRequest, true);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) { reset(); cancelRequest(); } });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) cancelRequest(); });
   connect();
 })();

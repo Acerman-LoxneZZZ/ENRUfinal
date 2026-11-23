@@ -19,7 +19,7 @@ namespace Raskladka.Integration
         private readonly object gate = new object();
         private readonly List<BrowserPeer> peers = new List<BrowserPeer>();
         private NamedPipeServerStream listening;
-        private bool enabled, disposed;
+        private bool disposed;
         internal BrowserBridge()
         {
             var listener = new Thread(Listen) { IsBackground = true, Name = "Раскладка · браузер" };
@@ -50,7 +50,9 @@ namespace Raskladka.Integration
                             if (disposed) return;
                             var peer = new BrowserPeer(server, Remove);
                             peers.Add(peer);
-                            peer.Send(new BrowserMessage { op = "config", enabled = enabled });
+                            // An already loaded 1.0 extension treats this as enabled=false
+                            // and can still correct explicit selections until reloaded.
+                            peer.Send(new BrowserMessage { op = "config" });
                             peer.Start(); listening = null; server = null;
                         }
                     } catch (Exception) { lock (gate) if (disposed) return; }
@@ -59,15 +61,6 @@ namespace Raskladka.Integration
             } catch (Exception) { /* An unavailable optional bridge must leave native editors usable. */ }
         }
         private void Remove(BrowserPeer peer) { lock (gate) peers.Remove(peer); }
-        internal void Enable(bool value)
-        {
-            BrowserPeer[] current;
-            lock (gate) { enabled = value; current = peers.ToArray(); }
-            foreach (var peer in current) {
-                try { peer.Send(new BrowserMessage { op = "config", enabled = value }); }
-                catch (Exception) { peer.Dispose(); }
-            }
-        }
         internal EditorResult Correct(Func<bool> fieldStillFocused, Func<string, EditConversion> convert)
         {
             BrowserPeer[] current;

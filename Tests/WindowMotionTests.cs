@@ -55,7 +55,7 @@ internal static class WindowMotionTests
         {
             var area = SystemParameters.WorkArea;
             window.RestorePosition(area.Left + 20, area.Top + 20);
-            window.SetPreferences(0, false, false, false, false, 1);
+            window.SetPreferences(0, false, false, false, 1);
             window.SetHotkey(0, 0x77);
             window.Show();
             Pump(350);

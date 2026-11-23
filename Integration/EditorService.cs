@@ -28,15 +28,13 @@ namespace Raskladka.Integration
 
     public sealed class EditorService : IDisposable
     {
-        internal const string SelectHint = "Выделите текст и нажмите сочетание ещё раз";
+        internal const string SelectHint = "Поставьте курсор в слово или выделите текст";
         internal const string Unavailable = "В этом поле исправление недоступно";
         internal const string ContextChanged = "Поле или выделение изменилось";
-        private readonly RecentNative recent = new RecentNative();
         private readonly BrowserBridge browsers = new BrowserBridge();
         private readonly SemaphoreSlim queue = new SemaphoreSlim(1);
         private volatile bool disposed;
 
-        public void SetRecentEnabled(bool enabled) { recent.Enable(enabled); browsers.Enable(enabled); }
         public async Task<EditorResult> CorrectAsync(Func<string, EditConversion> convert, bool switchLayout)
         {
             try {
@@ -44,7 +42,7 @@ namespace Raskladka.Integration
                 if (field == null || disposed) return EditorResult.Refuse(Unavailable);
                 // Pin the numeric selection when WM_HOTKEY arrives. A queued request must
                 // never borrow the next selection made in the same native editor.
-                EditSpan? captured = field.NativeEdit && field.Editable() ? (EditSpan?)field.Selection() : null;
+                EditSpan? captured = field.Current() && field.Editable() ? (EditSpan?)field.Selection() : null;
                 await queue.WaitAsync().ConfigureAwait(false);
                 try {
                     if (disposed || !field.Current()) return EditorResult.Refuse(ContextChanged);
@@ -67,8 +65,7 @@ namespace Raskladka.Integration
         private static bool SafeElement(NativeField field, AutomationElement element)
         {
             if (!field.Editable() || element == null || element.Current.IsPassword || !element.Current.IsEnabled ||
-                element.Current.NativeWindowHandle != field.Control.ToInt64() ||
-                !Automation.Compare(element, AutomationElement.FocusedElement)) return false;
+                element.Current.NativeWindowHandle != field.Control.ToInt64()) return false;
             object valuePattern;
             return !element.TryGetCurrentPattern(ValuePattern.Pattern, out valuePattern) || !((ValuePattern)valuePattern).Current.IsReadOnly;
         }
@@ -79,52 +76,119 @@ namespace Raskladka.Integration
         }
         private EditorResult CorrectNative(NativeField field, EditSpan? captured, Func<string, EditConversion> convert)
         {
-            if (!field.Editable()) return EditorResult.Refuse(Unavailable);
+            if (!field.Current() || !field.Editable()) return EditorResult.Refuse(Unavailable);
             AutomationElement element = AutomationElement.FromHandle(field.Control);
-            if (!SafeElement(field, element)) return EditorResult.Refuse(Unavailable);
+            return CorrectSelection(field, element, captured, convert, delegate {
+                return !disposed && field.Current() && Automation.Compare(element, AutomationElement.FocusedElement);
+            });
+        }
+
+        private static bool TryWord(NativeField field, TextPatternRange caret, int nativeCaret, out EditSpan target, out string word)
+        {
+            target = new EditSpan(nativeCaret, nativeCaret);
+            word = null;
+            string text;
+            int first, start, end;
+            bool wrapsLeft, wrapsRight;
+            if (field.TryCaretLine(nativeCaret, out text, out first, out wrapsLeft, out wrapsRight)) {
+                if (CaretWord.TryFind(text, nativeCaret - first, out start, out end)) {
+                    if ((!wrapsLeft || start > 1) && (!wrapsRight || end < text.Length - 1)) {
+                        target = new EditSpan(first + start, first + end);
+                        word = text.Substring(start, end - start);
+                        return true;
+                    }
+                } else if (!wrapsLeft && !wrapsRight) return false;
+            }
+
+            // A soft wrap is not a word or paragraph boundary. Ask the provider for
+            // bounded surrounding text when the displayed line cannot resolve the word.
+            // Calculate native offsets only within the same logical line as the caret.
+            for (int radius = 32; radius <= 1024; radius *= 2) {
+                var left = caret.Clone();
+                var right = caret.Clone();
+                int leftMoved = left.MoveEndpointByUnit(TextPatternRangeEndpoint.Start, TextUnit.Character, -radius);
+                int rightMoved = right.MoveEndpointByUnit(TextPatternRangeEndpoint.End, TextUnit.Character, radius);
+                string prefix = left.GetText(4097), suffix = right.GetText(4097);
+                if (prefix.Length > 4096 || suffix.Length > 4096) return false;
+                text = prefix + suffix;
+                if (!CaretWord.TryFind(text, prefix.Length, out start, out end)) {
+                    if (leftMoved != -radius || prefix.IndexOfAny(new[] { '\r', '\n' }) >= 0) return false;
+                    continue;
+                }
+                if ((leftMoved == -radius && start <= 1) || (rightMoved == radius && end >= text.Length - 1)) continue;
+                long from = (long)nativeCaret + start - prefix.Length, to = (long)nativeCaret + end - prefix.Length;
+                if (from < 0 || to > int.MaxValue) return false;
+                target = new EditSpan((int)from, (int)to);
+                word = text.Substring(start, end - start);
+                return true;
+            }
+            return false;
+        }
+
+        private static bool ReadOnly(TextPatternRange range)
+        {
+            object attribute = range.GetAttributeValue(TextPattern.IsReadOnlyAttribute);
+            return (attribute is bool && (bool)attribute) || attribute == TextPattern.MixedAttributeValue;
+        }
+
+        internal static EditorResult CorrectSelection(NativeField field, AutomationElement element, EditSpan? captured,
+            Func<string, EditConversion> convert, Func<bool> focused)
+        {
+            Func<bool> canEdit = () => focused() && SafeElement(field, element);
+            if (!canEdit()) return EditorResult.Refuse(Unavailable);
             EditSpan original = field.Selection(), target = original;
             if (!captured.HasValue || !captured.Value.Same(original)) return EditorResult.Refuse(ContextChanged);
-            if (original.Empty) {
-                EditSpan? bound = recent.Take(field, original.End);
-                if (!bound.HasValue) return EditorResult.Refuse(SelectHint);
-                target = bound.Value;
-            }
-            TextPatternRange current = Selected(element);
+            var current = Selected(element);
             if (current == null) return EditorResult.Refuse(Unavailable);
-            TextPatternRange range = current.Clone();
-            if (original.Empty) {
-                int distance = target.Start - target.End;
-                if (range.MoveEndpointByUnit(TextPatternRangeEndpoint.Start, TextUnit.Character, distance) != distance)
-                    return EditorResult.Refuse(SelectHint);
+            bool collapsed = current.CompareEndpoints(TextPatternRangeEndpoint.Start, current, TextPatternRangeEndpoint.End) == 0;
+            if (collapsed != original.Empty) return EditorResult.Refuse(ContextChanged);
+            string source;
+            if (collapsed) {
+                if (!TryWord(field, current, original.Start, out target, out source)) return EditorResult.Refuse(SelectHint);
+            } else {
+                if (ReadOnly(current)) return EditorResult.Refuse(Unavailable);
+                source = current.GetText(-1);
             }
-            object readOnly = range.GetAttributeValue(TextPattern.IsReadOnlyAttribute);
-            if ((readOnly is bool && (bool)readOnly) || readOnly == TextPattern.MixedAttributeValue) return EditorResult.Refuse(Unavailable);
-            string source = range.GetText(-1);
-            if (String.IsNullOrEmpty(source) || source.IndexOf('\0') >= 0 ||
-                (original.Empty && source.Length != target.End - target.Start)) return EditorResult.Refuse(SelectHint);
-            EditConversion change = convert(source);
+            if (string.IsNullOrEmpty(source) || source.IndexOf('\0') >= 0) return EditorResult.Refuse(SelectHint);
+            var change = convert(source);
             if (change == null || change.Replacement == null || change.Replacement == source)
                 return EditorResult.Refuse(change == null ? Unavailable : change.Message);
-            if (disposed || !SafeElement(field, element) || !field.Selection().Same(original) || !SameRange(current, Selected(element)) ||
-                range.GetText(-1) != source) return EditorResult.Refuse(ContextChanged);
-            if (original.Empty) range.Select();
-            if (disposed || !SafeElement(field, element) || !field.Selection().Same(target) || !SameRange(range, Selected(element)) ||
-                range.GetText(-1) != source || !field.Current()) return EditorResult.Refuse(ContextChanged);
-            if (field.Rich) field.Query(0x0458); // EM_STOPGROUPTYPING
-            if (!field.Current() || !field.Selection().Same(target)) return EditorResult.Refuse(ContextChanged);
-            field.ReplaceSelection(change.Replacement);
-            recent.Reset();
-            EditSpan after = field.Selection();
-            if (!field.Current() || !after.Empty || after.End != target.End) return EditorResult.Refuse(ContextChanged);
-            TextPatternRange check = Selected(element);
-            if (check == null) return EditorResult.Refuse(Unavailable);
-            // Maintain the starting text pointer even when the provider moves the selection
-            // to the end. Convert preserves the physical character count and newlines.
-            var verification = check.Clone();
-            verification.MoveEndpointByRange(TextPatternRangeEndpoint.Start, range, TextPatternRangeEndpoint.Start);
-            if (verification.GetText(-1) != change.Replacement) return EditorResult.Refuse(Unavailable);
+            if (source.Length != change.Replacement.Length) return EditorResult.Refuse(Unavailable);
+            if (!canEdit() || !original.Same(field.Selection()) || !SameRange(current, Selected(element))) return EditorResult.Refuse(ContextChanged);
+            if (collapsed) {
+                EditSpan latest;
+                string word;
+                if (!TryWord(field, current, original.Start, out latest, out word) || !latest.Same(target) || source != word ||
+                    !focused() || !original.Same(field.Selection())) return EditorResult.Refuse(ContextChanged);
+                field.SetSelection(target);
+            }
+
+            EditSpan finalCaret = collapsed ? original : new EditSpan(target.End, target.End);
+            bool written = false;
+            try {
+                // Confirm the actual range after EM_SETSEL with an independent UIA
+                // read. Providers can expose line breaks or characters differently.
+                var selected = Selected(element);
+                if (selected == null || !canEdit() || !target.Same(field.Selection()) || ReadOnly(selected) ||
+                    selected.GetText(source.Length + 1) != source) return EditorResult.Refuse(ContextChanged);
+                if (field.Rich) field.Query(0x0458); // EM_STOPGROUPTYPING
+                if (!focused() || !target.Same(field.Selection())) return EditorResult.Refuse(ContextChanged);
+                field.ReplaceSelection(change.Replacement);
+                written = true;
+                if (!focused() || !field.Selection().Same(new EditSpan(target.End, target.End))) return EditorResult.Refuse(ContextChanged);
+                // Read back precisely the changed interval. Reusing native offsets
+                // avoids expensive per-character UIA moves and preserves one undo unit.
+                field.SetSelection(target);
+                var check = Selected(element);
+                if (check == null || !target.Same(field.Selection()) || check.GetText(source.Length + 1) != change.Replacement)
+                    return EditorResult.Refuse(Unavailable);
+            } finally {
+                if ((collapsed || written) && focused() && target.Same(field.Selection()))
+                    field.SetSelection(written ? finalCaret : original);
+            }
+            if (!focused() || !finalCaret.Same(field.Selection())) return EditorResult.Refuse(ContextChanged);
             return EditorResult.Done(change);
         }
-        public void Dispose() { disposed = true; recent.Dispose(); browsers.Dispose(); }
+        public void Dispose() { disposed = true; browsers.Dispose(); }
     }
 }
